@@ -181,6 +181,7 @@ class StubbornGoTo internal constructor(
                     delay(period)
                     val distance = robotFrame.async().distance(robotFrameInPast).await()
                     val speedkmh = distance * 3600.0 / period
+                    Log.i("RobotSpeed" ,"Robot speed $speedkmh ")
                     if (speedkmh >= speedThresholdKmH && !robotIsMoving) {
                         robotIsMoving = true
                         onRobotWalking(true)
