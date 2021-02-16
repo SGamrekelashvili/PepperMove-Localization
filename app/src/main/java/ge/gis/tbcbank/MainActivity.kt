@@ -3,6 +3,7 @@ package ge.gis.tbcbank
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.os.Bundle
+import android.os.Handler
 import android.os.SystemClock
 import android.util.Log
 import android.view.View
@@ -28,9 +29,14 @@ import com.aldebaran.qi.sdk.design.activity.RobotActivity
 import com.aldebaran.qi.sdk.util.FutureUtils
 import com.softbankrobotics.dx.pepperextras.actuation.StubbornGoTo
 import com.softbankrobotics.dx.pepperextras.actuation.StubbornGoToBuilder
+import com.softbankrobotics.dx.pepperextras.util.SingleThread
+import com.softbankrobotics.dx.pepperextras.util.asyncFuture
 import com.softbankrobotics.dx.pepperextras.util.await
+import com.softbankrobotics.dx.pepperextras.util.awaitOrNull
 import kotlinx.android.synthetic.main.activity_localization.*
 import kotlinx.android.synthetic.main.activity_main.*
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.runBlocking
 import java.util.concurrent.TimeUnit
 
 
@@ -47,6 +53,7 @@ class MainActivity : RobotActivity(), RobotLifecycleCallbacks {
     private var holder: Holder? = null
     var publishExplorationMapFuture: Future<Void>? = null
     var goto: StubbornGoTo? = null
+    var future: Future<Unit>? =null
 
     override fun onCreate(savedInstanceState: Bundle?) {
         QiSDK.register(this, this)
@@ -60,6 +67,10 @@ class MainActivity : RobotActivity(), RobotLifecycleCallbacks {
                 spinnerAdapter.add(location)
                 saveLocation(location)
             }
+        }
+
+        canelGoTo.setOnClickListener{
+
         }
 
         goto_button.setOnClickListener {
@@ -101,13 +112,13 @@ class MainActivity : RobotActivity(), RobotLifecycleCallbacks {
 //                Log.i("TAG", "dd")
 //            } finally {
 //                Thread {
-                    goto!!.async().run().requestCancellation()
+//                    goto!!.async().run().requestCancellation()
 //                }.start()
 //            }
 
 
-//            publishExplorationMapFuture?.cancel(true)
-//            releaseAbilities(holder!!)
+            publishExplorationMapFuture?.cancel(true)
+            releaseAbilities(holder!!)
         }
 
         extendMapButton.setOnClickListener {
@@ -141,16 +152,27 @@ class MainActivity : RobotActivity(), RobotLifecycleCallbacks {
     }
 
     fun goToLocation(location: String) {
+
         val freeFrame: FreeFrame? = savedLocations[location]
         val frameFuture: Frame = freeFrame!!.frame()
-        goto = StubbornGoToBuilder.with(qiContext!!)
-            .withFinalOrientationPolicy(OrientationPolicy.FREE_ORIENTATION)
-            .withMaxRetry(10)
-            .withMaxSpeed(0.5f)
-            .withMaxDistanceFromTargetFrame(0.3)
-            .withWalkingAnimationEnabled(true)
-            .withFrame(frameFuture).build()
-        goto!!.async().run()
+        val appscope = SingleThread.newCoroutineScope()
+        val future: Future<Unit> = appscope.asyncFuture {
+            goto = StubbornGoToBuilder.with(qiContext!!)
+                .withFinalOrientationPolicy(OrientationPolicy.FREE_ORIENTATION)
+                .withMaxRetry(10)
+                .withMaxSpeed(0.5f)
+                .withMaxDistanceFromTargetFrame(0.3)
+                .withWalkingAnimationEnabled(true)
+                .withFrame(frameFuture).build()
+            goto!!.async().run().await()
+            }
+        runBlocking {
+            delay(5000)
+            future.requestCancellation()
+            future.awaitOrNull()
+            delay(5000)
+            goto!!.async().run().await()
+        }
         waitForInstructions()
     }
 
