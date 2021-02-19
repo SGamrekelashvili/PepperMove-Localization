@@ -11,7 +11,6 @@ import android.widget.ArrayAdapter
 import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.Lifecycle
-import com.aldebaran.qi.Consumer
 import com.aldebaran.qi.Future
 import com.aldebaran.qi.Promise
 import com.aldebaran.qi.sdk.QiContext
@@ -34,6 +33,7 @@ import kotlinx.android.synthetic.main.activity_localization.*
 import kotlinx.android.synthetic.main.activity_main.*
 import java.io.*
 import java.util.*
+import java.util.concurrent.ExecutionException
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicBoolean
 import kotlin.collections.ArrayList
@@ -46,10 +46,10 @@ class MainActivity : RobotActivity(), RobotLifecycleCallbacks {
     private val RECHARGE_PERMISSION =
         "com.softbankrobotics.permission.AUTO_RECHARGE" // recharge permission
     private val load_location_success = AtomicBoolean(false)
-    private var ma: MainActivity? = null
 
     private val MULTIPLE_PERMISSIONS = 2
-//    private val savedLocations = mutableMapOf<String, FreeFrame>()
+
+    //    private val savedLocations = mutableMapOf<String, FreeFrame>()
     private var qiContext: QiContext? = null
     private var goToFuture: Future<Boolean>? = null
     private var actuation: Actuation? = null
@@ -58,7 +58,7 @@ class MainActivity : RobotActivity(), RobotLifecycleCallbacks {
     private var holder: Holder? = null
     var publishExplorationMapFuture: Future<Void>? = null
     var goto: StubbornGoTo? = null
-    var future: Future<Unit>? =null
+    var future: Future<Unit>? = null
     var savedLocations = TreeMap<String, AttachedFrame>()
     val filesDirectoryPath = "/sdcard/Maps"
     val mapFileName = "mapData.txt"
@@ -100,18 +100,18 @@ class MainActivity : RobotActivity(), RobotLifecycleCallbacks {
             }
         }
 
-        canelGoTo.setOnClickListener{
+        canelGoTo.setOnClickListener {
 
         }
 
         goto_button.setOnClickListener {
+            Thread{
+                goToLocation(selectedLocation!!)
+            }.start()
+
             selectedLocation?.let {
                 goto_button.isEnabled = false
                 save_button.isEnabled = false
-                val thread = Thread {
-                    goToLocation(it)
-                }
-                thread.start()
             }
         }
 
@@ -139,20 +139,12 @@ class MainActivity : RobotActivity(), RobotLifecycleCallbacks {
 
         sTopLocalization.setOnClickListener {
             loadLocations()
-//            try {
-//
-//                goto!!.async().run().requestCancellation()
-//            }catch(dd: Exception) {
-//                Log.i("TAG", "dd")
-//            } finally {
-//                Thread {
-//                    goto!!.async().run().requestCancellation()
-//                }.start()
-//            }
+                try {
+                    loadLocations()!!.get()
+                } catch (e: ExecutionException) {
+                    e.printStackTrace()
+                }
 
-
-//            publishExplorationMapFuture?.cancel(true)
-//            releaseAbilities(holder!!)
         }
 
         extendMapButton.setOnClickListener {
@@ -188,10 +180,11 @@ class MainActivity : RobotActivity(), RobotLifecycleCallbacks {
     fun saveLocation(location: String): Future<Void> {
         // Get the robot frame asynchronously.
         Log.d(TAG, "saveLocation: Start saving this location")
-        return createAttachedFrameFromCurrentPosition()!!.andThenConsume(Consumer<AttachedFrame> { attachedFrame: AttachedFrame ->
+        return createAttachedFrameFromCurrentPosition()!!.andThenConsume { attachedFrame: AttachedFrame ->
             savedLocations[location] = attachedFrame
-        })
+        }
     }
+
     private fun createAttachedFrameFromCurrentPosition(): Future<AttachedFrame>? {
         // Get the robot frame asynchronously.
         return actuation!!.async()
@@ -204,6 +197,7 @@ class MainActivity : RobotActivity(), RobotLifecycleCallbacks {
                 mapFrame!!.makeAttachedFrame(transformTime.transform)
             }
     }
+
     private fun getMapFrame(): Frame? {
         return mapping!!.async().mapFrame().value
     }
@@ -214,9 +208,9 @@ class MainActivity : RobotActivity(), RobotLifecycleCallbacks {
         val mapFrame: Frame = getMapFrame()!!
         for ((key, destination) in savedLocations) {
             // get location of the frame
-                d(
-                    "sdsdsdsd", destination.toString()
-                )
+            d(
+                "sdsdsdsd", destination.toString()
+            )
             val frame = destination.async().frame().value
 
             // create a serializable vector2theta
@@ -227,6 +221,7 @@ class MainActivity : RobotActivity(), RobotLifecycleCallbacks {
         }
         saveLocationsToFile(filesDirectoryPath, locationsFileName, locationsToBackup)
     }
+
     private fun saveLocationsToFile(
         filesDirectoryPath: String?,
         locationsFileName: String?,
@@ -254,14 +249,14 @@ class MainActivity : RobotActivity(), RobotLifecycleCallbacks {
         } catch (e: FileNotFoundException) {
             Log.e(TAG, e.message, e)
         } catch (e: IOException) {
-            Log.e( TAG, e.message, e)
+            Log.e(TAG, e.message, e)
         } finally {
             try {
                 oos?.close()
                 fos?.close()
             } catch (e: IOException) {
                 Log.e(
-                   TAG,
+                    TAG,
                     e.message,
                     e
                 )
@@ -269,7 +264,10 @@ class MainActivity : RobotActivity(), RobotLifecycleCallbacks {
         }
     }
 
-    private fun getLocationsFromFile(filesDirectoryPath: String, LocationsFileName: String): Map<String?, Vector2theta?>? {
+    private fun getLocationsFromFile(
+        filesDirectoryPath: String,
+        LocationsFileName: String
+    ): Map<String?, Vector2theta?>? {
         var vectors: Map<String?, Vector2theta?>? = null
         var fis: FileInputStream? = null
         var ois: ObjectInputStream? = null
@@ -313,6 +311,8 @@ class MainActivity : RobotActivity(), RobotLifecycleCallbacks {
                 savedLocations = TreeMap()
                 val mapFrame: Frame = getMapFrame()!!
 
+                d(TAG, "mapFrame"+mapFrame.toString())
+                d(TAG, "vectors"+vectors.toString())
 
                 // Build frames from the vectors.
                 for ((key, value) in vectors!!) {
@@ -321,21 +321,23 @@ class MainActivity : RobotActivity(), RobotLifecycleCallbacks {
                         value!!.createTransform()
                     d(TAG, "loadLocations: $key")
                     spinnerAdapter.add(key)
+                    spinnerAdapter.addAll(savedLocations.keys.toString())
 
                     // Create an AttachedFrame representing the current robot frame relatively to the MapFrame.
                     val attachedFrame =
                         mapFrame.async().makeAttachedFrame(t).value
                     d(TAG, savedLocations[key.toString()].toString())
-                    d(TAG, key.toString())
+                    d(TAG, "Framee"+key.toString())
                     d(TAG, savedLocations.toString())
 
                     // Store the FreeFrame.
                     savedLocations[key.toString()] = attachedFrame
-                    load_location_success.set(true)
 
                     d(TAG, savedLocations[key.toString()].toString())
                     d(TAG, key.toString())
+                    d(TAG, attachedFrame.toString())
                     d(TAG, savedLocations.toString())
+                    load_location_success.set(true)
 
                 }
                 d(TAG, "loadLocations: Done")
@@ -347,11 +349,10 @@ class MainActivity : RobotActivity(), RobotLifecycleCallbacks {
             }
         }
     }
+
     private fun goToLocation(location: String) {
-
-
         val freeFrame: AttachedFrame? = savedLocations[location]
-        d("DDDDD1",savedLocations[location].toString())
+        d("DDDDD1", savedLocations[location].toString())
         val frameFuture: Frame = freeFrame!!.frame()
         val appscope = SingleThread.newCoroutineScope()
         val future: Future<Unit> = appscope.asyncFuture {
@@ -363,7 +364,7 @@ class MainActivity : RobotActivity(), RobotLifecycleCallbacks {
                 .withWalkingAnimationEnabled(true)
                 .withFrame(frameFuture).build()
             goto!!.async().run().await()
-            }
+        }
 //        runBlocking {
 //            future.requestCancellation()
 //            future.awaitOrNull()
@@ -381,15 +382,14 @@ class MainActivity : RobotActivity(), RobotLifecycleCallbacks {
     }
 
 
-
-
     override fun onRobotFocusGained(qiContext: QiContext?) {
         this.qiContext = qiContext
+        actuation = qiContext!!.actuation
+        mapping = qiContext.mapping
+        d("ddddfocuusgained", qiContext.toString())
         runOnUiThread {
             startMappingButton.isEnabled = true
         }
-        actuation = qiContext!!.actuation
-        mapping = qiContext.mapping
 
     }
 
@@ -442,13 +442,13 @@ class MainActivity : RobotActivity(), RobotLifecycleCallbacks {
                 localizeAndMap.async().run()
 
                     .thenConsume {
-                    // Remove the OnStatusChangedListener.
-                    localizeAndMap.removeAllOnStatusChangedListeners()
-                    // In case of error, forward it to the Promise.
-                    if (it.hasError() && !promise.future.isDone) {
-                        promise.setError(it.errorMessage)
+                        // Remove the OnStatusChangedListener.
+                        localizeAndMap.removeAllOnStatusChangedListeners()
+                        // In case of error, forward it to the Promise.
+                        if (it.hasError() && !promise.future.isDone) {
+                            promise.setError(it.errorMessage)
+                        }
                     }
-                }
             }
 
         // Return the Future associated to the Promise.
@@ -458,8 +458,6 @@ class MainActivity : RobotActivity(), RobotLifecycleCallbacks {
             return@thenCompose it
         }
     }
-
-
 
 
     private fun mapToBitmap(explorationMap: ExplorationMap) {
@@ -501,14 +499,15 @@ class MainActivity : RobotActivity(), RobotLifecycleCallbacks {
         updatedMapCallback: (ExplorationMap) -> Unit
     ): Future<Void> {
         Log.i(TAG.toString(), "Reecursively Function")
-            return localizeAndMap.async().dumpMap().andThenCompose {
-                Log.i(TAG, "$it Function")
-                updatedMapCallback(it)
-                FutureUtils.wait(1, TimeUnit.SECONDS)
-            }.andThenCompose {
-                publishExplorationMap(localizeAndMap, updatedMapCallback)
-            }
+        return localizeAndMap.async().dumpMap().andThenCompose {
+            Log.i(TAG, "$it Function")
+            updatedMapCallback(it)
+            FutureUtils.wait(1, TimeUnit.SECONDS)
+        }.andThenCompose {
+            publishExplorationMap(localizeAndMap, updatedMapCallback)
+        }
     }
+
     private fun startMapExtensionStep(initialExplorationMap: ExplorationMap, qiContext: QiContext) {
         Log.i(TAG.toString(), "StartMapEXTENSION Class")
         extendMapButton.isEnabled = false
@@ -535,14 +534,14 @@ class MainActivity : RobotActivity(), RobotLifecycleCallbacks {
     }
 
 
-
-    private fun robotOnMap(initialExplorationMap: ExplorationMap, qiContext: QiContext){
+    private fun robotOnMap(initialExplorationMap: ExplorationMap, qiContext: QiContext) {
         Log.i(TAG.toString(), "$initialExplorationMap Class")
 
     }
+
     private fun holdAbilities(qiContext: QiContext) {
         // Build and store the holder for the abilities.
-            holder = HolderBuilder.with(qiContext)
+        holder = HolderBuilder.with(qiContext)
             .withAutonomousAbilities(
                 AutonomousAbilitiesType.BACKGROUND_MOVEMENT,
                 AutonomousAbilitiesType.BASIC_AWARENESS,
@@ -595,15 +594,15 @@ class MainActivity : RobotActivity(), RobotLifecycleCallbacks {
                 // Run the LocalizeAndMap.
                 localizeAndMap.async().run()
                     .thenConsume {
-                    // Remove the OnStatusChangedListener.
-                    localizeAndMap.removeAllOnStatusChangedListeners()
-                    // Stop the map notification process.
-                    publishExplorationMapFuture?.cancel(true)
-                    // In case of error, forward it to the Promise.
-                    if (it.hasError() && !promise.future.isDone) {
-                        promise.setError(it.errorMessage)
+                        // Remove the OnStatusChangedListener.
+                        localizeAndMap.removeAllOnStatusChangedListeners()
+                        // Stop the map notification process.
+                        publishExplorationMapFuture?.cancel(true)
+                        // In case of error, forward it to the Promise.
+                        if (it.hasError() && !promise.future.isDone) {
+                            promise.setError(it.errorMessage)
+                        }
                     }
-                }
             }
 
         // Return the Future associated to the Promise.
