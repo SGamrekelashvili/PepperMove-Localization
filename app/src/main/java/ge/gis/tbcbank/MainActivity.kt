@@ -1,7 +1,6 @@
 package ge.gis.tbcbank
 
 import android.Manifest
-import android.app.PendingIntent.getActivity
 import android.content.pm.PackageManager
 import android.os.Bundle
 import android.util.Log
@@ -19,7 +18,6 @@ import com.aldebaran.qi.sdk.QiContext
 import com.aldebaran.qi.sdk.QiSDK
 import com.aldebaran.qi.sdk.RobotLifecycleCallbacks
 import com.aldebaran.qi.sdk.`object`.actuation.*
-import com.aldebaran.qi.sdk.`object`.geometry.TransformTime
 import com.aldebaran.qi.sdk.`object`.holder.AutonomousAbilitiesType
 import com.aldebaran.qi.sdk.`object`.holder.Holder
 import com.aldebaran.qi.sdk.builder.*
@@ -32,14 +30,10 @@ import com.softbankrobotics.dx.pepperextras.actuation.StubbornGoToBuilder
 import com.softbankrobotics.dx.pepperextras.util.SingleThread
 import com.softbankrobotics.dx.pepperextras.util.asyncFuture
 import com.softbankrobotics.dx.pepperextras.util.await
-import com.softbankrobotics.dx.pepperextras.util.awaitOrNull
 import kotlinx.android.synthetic.main.activity_localization.*
 import kotlinx.android.synthetic.main.activity_main.*
-import kotlinx.coroutines.delay
-import kotlinx.coroutines.runBlocking
 import java.io.*
 import java.util.*
-import java.util.concurrent.ExecutionException
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicBoolean
 import kotlin.collections.ArrayList
@@ -99,7 +93,7 @@ class MainActivity : RobotActivity(), RobotLifecycleCallbacks {
             val location: String = add_item_edit.text.toString()
             add_item_edit.text.clear()
             // Save location only if new.
-            if (location.isNotEmpty() && !savedLocations.containsKey(location)) {
+            if (location.isNotEmpty()) {
                 spinnerAdapter.add(location)
                 saveLocation(location)
                 backupLocations()
@@ -198,8 +192,7 @@ class MainActivity : RobotActivity(), RobotLifecycleCallbacks {
             savedLocations[location] = attachedFrame
         })
     }
-
-    fun createAttachedFrameFromCurrentPosition(): Future<AttachedFrame>? {
+    private fun createAttachedFrameFromCurrentPosition(): Future<AttachedFrame>? {
         // Get the robot frame asynchronously.
         return actuation!!.async()
             .robotFrame()
@@ -207,8 +200,8 @@ class MainActivity : RobotActivity(), RobotLifecycleCallbacks {
                 val mapFrame = getMapFrame()
 
                 // Transform between the current robot location (robotFrame) and the mapFrame
-                val transformTime: TransformTime = robotFrame.computeTransform(mapFrame)
-                mapFrame!!.makeAttachedFrame(transformTime.getTransform())
+                val transformTime = robotFrame.computeTransform(mapFrame)
+                mapFrame!!.makeAttachedFrame(transformTime.transform)
             }
     }
     private fun getMapFrame(): Frame? {
@@ -217,7 +210,7 @@ class MainActivity : RobotActivity(), RobotLifecycleCallbacks {
 
     private fun backupLocations() {
 
-        val locationsToBackup = TreeMap<String, Vector2theta>()
+        val locationsToBackup = TreeMap<String?, Vector2theta?>()
         val mapFrame: Frame = getMapFrame()!!
         for ((key, destination) in savedLocations) {
             // get location of the frame
@@ -237,15 +230,12 @@ class MainActivity : RobotActivity(), RobotLifecycleCallbacks {
     private fun saveLocationsToFile(
         filesDirectoryPath: String?,
         locationsFileName: String?,
-        locationsToBackup: TreeMap<String, Vector2theta>
+        locationsToBackup: TreeMap<String?, Vector2theta?>?
     ) {
         val gson = Gson()
-        val points: String = gson.toJson(locationsToBackup)
+        val points = gson.toJson(locationsToBackup)
         var fos: FileOutputStream? = null
         var oos: ObjectOutputStream? = null
-        Log.d("TAGgg1", "backupLocations: $filesDirectoryPath")
-        Log.d("TAGgg2", "backupLocations: $locationsFileName")
-        Log.d("TAGgg3", "backupLocations: $locationsToBackup")
 
         // Backup list into a file
         try {
@@ -257,26 +247,29 @@ class MainActivity : RobotActivity(), RobotLifecycleCallbacks {
             fos = FileOutputStream(file)
             oos = ObjectOutputStream(fos)
             oos.writeObject(points)
-            Log.d(TAG, "backupLocations: Done")
+            d(
+                TAG,
+                "backupLocations: Done"
+            )
         } catch (e: FileNotFoundException) {
-            Log.d(TAG, e.message, e)
+            Log.e(TAG, e.message, e)
         } catch (e: IOException) {
-            Log.d(TAG, e.message, e)
+            Log.e( TAG, e.message, e)
         } finally {
             try {
-                if (oos != null) {
-                    oos.close()
-                }
-                if (fos != null) {
-                    fos.close()
-                }
+                oos?.close()
+                fos?.close()
             } catch (e: IOException) {
-                Log.d(TAG, e.message, e)
+                Log.e(
+                   TAG,
+                    e.message,
+                    e
+                )
             }
         }
     }
 
-    fun getLocationsFromFile(filesDirectoryPath: String, LocationsFileName: String): Map<String?, Vector2theta?>? {
+    private fun getLocationsFromFile(filesDirectoryPath: String, LocationsFileName: String): Map<String?, Vector2theta?>? {
         var vectors: Map<String?, Vector2theta?>? = null
         var fis: FileInputStream? = null
         var ois: ObjectInputStream? = null
@@ -304,7 +297,7 @@ class MainActivity : RobotActivity(), RobotLifecycleCallbacks {
         return vectors
     }
 
-    fun loadLocations(): Future<Boolean>? {
+    private fun loadLocations(): Future<Boolean>? {
         return FutureUtils.futureOf<Boolean> { f: Future<Void?>? ->
             // Read file into a temporary hashmap.
             val file =
@@ -354,10 +347,11 @@ class MainActivity : RobotActivity(), RobotLifecycleCallbacks {
             }
         }
     }
-    private fun goToLocation(location:String) {
+    private fun goToLocation(location: String) {
 
 
         val freeFrame: AttachedFrame? = savedLocations[location]
+        d("DDDDD1",savedLocations[location].toString())
         val frameFuture: Frame = freeFrame!!.frame()
         val appscope = SingleThread.newCoroutineScope()
         val future: Future<Unit> = appscope.asyncFuture {
